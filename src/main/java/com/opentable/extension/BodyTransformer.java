@@ -42,9 +42,10 @@ public class BodyTransformer extends ResponseDefinitionTransformer {
 
     private static final String TRANSFORMER_NAME = "body-transformer";
     private static final boolean APPLY_GLOBALLY = false;
-    
+
     private static final Pattern interpolationPattern = Pattern.compile("\\$\\(.*?\\)");
     private static final Pattern randomIntegerPattern = Pattern.compile("!RandomInteger");
+    private static final Pattern replaceStringPattern = Pattern.compile("\\$\\(.*?\\|replace\\('.*?','.*?'\\)");
 
     private static ObjectMapper jsonMapper = initJsonMapper();
     private static ObjectMapper xmlMapper = initXmlMapper();
@@ -58,26 +59,26 @@ public class BodyTransformer extends ResponseDefinitionTransformer {
         configuration.setXMLTextElementName("value");
         return new XmlMapper(configuration);
     }
-    
+
     @Override
     public String getName() {
         return TRANSFORMER_NAME;
     }
-    
+
     @Override
     public boolean applyGlobally() {
         return APPLY_GLOBALLY;
     }
-    
+
     @Override
     public ResponseDefinition transform(Request request, ResponseDefinition responseDefinition, FileSource fileSource, Parameters parameters) {
         if (hasEmptyResponseBody(responseDefinition)) {
             return responseDefinition;
         }
-        
+
         Map object = null;
         String requestBody = request.getBodyAsString();
-        
+
         // Trying to create map of request body or query string parameters
         try {
             object = jsonMapper.readValue(requestBody, Map.class);
@@ -106,36 +107,36 @@ public class BodyTransformer extends ResponseDefinitionTransformer {
                 }
             }
         }
-        
+
         // Update the map with query parameters if any (if same names - replace)
         if (parameters != null) {
             String urlRegex = parameters.getString("urlRegex");
-            
+
             if (urlRegex != null) {
                 Pattern p = Pattern.compile(urlRegex);
                 Matcher m = p.matcher(request.getUrl());
-                
+
                 // There may be more groups in the regex than the number of named capturing groups
                 List<String> groups = getNamedGroupCandidates(urlRegex);
-                
+
                 if (m.matches() &&
                     groups.size() > 0 &&
                     groups.size() <= m.groupCount()) {
-                    
+
                     for (int i = 0; i < groups.size(); i++) {
-                        
+
                         if (object == null) {
                             object = new HashMap();
                         }
-                        
+
                         object.put(groups.get(i), m.group(i + 1));
                     }
                 }
             }
         }
-        
+
         String responseBody = getResponseBody(responseDefinition, fileSource);
-        
+
         // Create response by matching request map and response body parametrized values
         return ResponseDefinitionBuilder
             .like(responseDefinition).but()
@@ -143,7 +144,7 @@ public class BodyTransformer extends ResponseDefinitionTransformer {
             .withBody(transformResponse(object, responseBody))
             .build();
     }
-    
+
     private String transformResponse(Map requestObject, String response) {
         String modifiedResponse = response;
 
@@ -160,21 +161,38 @@ public class BodyTransformer extends ResponseDefinitionTransformer {
     private CharSequence getValue(String group, Map requestObject) {
         if (randomIntegerPattern.matcher(group).find()) {
             return String.valueOf(new Random().nextInt(2147483647));
+        } else if (replaceStringPattern.matcher(group).find()) {
+            return replaceValueFromRequestObject(group, requestObject);
         }
-
         return getValueFromRequestObject(group, requestObject);
     }
 
     private CharSequence getValueFromRequestObject(String group, Map requestObject) {
         String fieldName = group.substring(2, group.length() - 1);
         String[] fieldNames = fieldName.split("\\.");
+
         Object tempObject = requestObject;
+
         for (String field : fieldNames) {
             if (tempObject instanceof Map) {
                 tempObject = ((Map) tempObject).get(field);
             }
         }
         return String.valueOf(tempObject);
+    }
+
+    private CharSequence replaceValueFromRequestObject(String group, Map requestObject) {
+        String fieldName = group.substring(2, group.indexOf('|'));
+        String[] fieldNames = fieldName.split("\\.");
+        String[] replaceChars = StringUtils.substringsBetween(group, "'", "'");
+
+        Object tempObject = requestObject;
+        for (String field : fieldNames) {
+            if (tempObject instanceof Map) {
+                tempObject = ((Map) tempObject).get(field);
+            }
+        }
+        return String.valueOf(tempObject).replace(replaceChars[0], replaceChars[1]);
     }
 
     private boolean hasEmptyResponseBody(ResponseDefinition responseDefinition) {
@@ -215,5 +233,5 @@ public class BodyTransformer extends ResponseDefinitionTransformer {
 
         return decodedValue;
     }
-    
+
 }
