@@ -162,37 +162,37 @@ public class BodyTransformer extends ResponseDefinitionTransformer {
         if (randomIntegerPattern.matcher(group).find()) {
             return String.valueOf(new Random().nextInt(2147483647));
         } else if (replaceStringPattern.matcher(group).find()) {
-            return replaceValueFromRequestObject(group, requestObject);
+            return getModifiedValueFromRequestObject(group, requestObject);
         }
         return getValueFromRequestObject(group, requestObject);
     }
 
     private CharSequence getValueFromRequestObject(String group, Map requestObject) {
         String fieldName = group.substring(2, group.length() - 1);
-        String[] fieldNames = fieldName.split("\\.");
 
-        Object tempObject = requestObject;
-
-        for (String field : fieldNames) {
-            if (tempObject instanceof Map) {
-                tempObject = ((Map) tempObject).get(field);
-            }
-        }
-        return String.valueOf(tempObject);
+        return getValueForFieldName(fieldName, requestObject);
     }
 
-    private CharSequence replaceValueFromRequestObject(String group, Map requestObject) {
+    private CharSequence getModifiedValueFromRequestObject(String group, Map requestObject) {
         String fieldName = group.substring(2, group.indexOf('|'));
+        String[] replacementChars = StringUtils.substringsBetween(group, "'", "'");
+
+        return getValueForFieldName(fieldName, requestObject)
+            .replace(replacementChars[0], replacementChars[1]);
+    }
+
+    private String getValueForFieldName(String fieldName, Map requestObject) {
         String[] fieldNames = fieldName.split("\\.");
-        String[] replaceChars = StringUtils.substringsBetween(group, "'", "'");
 
         Object tempObject = requestObject;
+
         for (String field : fieldNames) {
             if (tempObject instanceof Map) {
                 tempObject = ((Map) tempObject).get(field);
             }
         }
-        return String.valueOf(tempObject).replace(replaceChars[0], replaceChars[1]);
+
+        return String.valueOf(tempObject);
     }
 
     private boolean hasEmptyResponseBody(ResponseDefinition responseDefinition) {
